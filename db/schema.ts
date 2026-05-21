@@ -128,6 +128,69 @@ export const deals = sqliteTable("deals", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+// -------- Deal clarifications --------
+
+/**
+ * Pre-flight ambiguity records detected from deal language before show night.
+ *
+ * One deal can have multiple clarification cards. A clarification captures the
+ * ambiguous phrase, the drafted question to the agent, and the agent/booker
+ * outcome. Historical citations are stored as JSON text because one risk can
+ * cite multiple past shows and the UI reads the row once.
+ */
+export const dealClarifications = sqliteTable("deal_clarifications", {
+  id: text("id").primaryKey(),
+  dealId: text("deal_id")
+    .notNull()
+    .references(() => deals.id),
+  riskClass: text("risk_class", {
+    enum: [
+      "marketing_recoup_cap",
+      "bonus_structure_drift",
+      "agent_risk_pattern",
+    ],
+  }).notNull(),
+  severity: text("severity", {
+    enum: ["high", "medium", "low"],
+  }).notNull(),
+
+  leadSentence: text("lead_sentence").notNull(),
+  detectedPhraseFromDeal: text("detected_phrase_from_deal").notNull(),
+  suggestedClarification: text("suggested_clarification").notNull(),
+  citationShowIds: text("citation_show_ids"),
+
+  detectedAt: integer("detected_at", { mode: "timestamp" }).notNull(),
+  detectedByModel: text("detected_by_model"),
+
+  status: text("status", {
+    enum: [
+      "pending",
+      "sent_to_agent",
+      "resolved",
+      "dismissed_by_booker",
+    ],
+  })
+    .notNull()
+    .default("pending"),
+
+  sentToAgentAt: integer("sent_to_agent_at", { mode: "timestamp" }),
+  agentReplyText: text("agent_reply_text"),
+  agentReplyReceivedAt: integer("agent_reply_received_at", {
+    mode: "timestamp",
+  }),
+  resolutionValueJson: text("resolution_value_json"),
+  resolvedAt: integer("resolved_at", { mode: "timestamp" }),
+  resolvedVia: text("resolved_via", {
+    enum: [
+      "email",
+      "in_app_reply",
+      "phone_logged_by_booker",
+      "booker_dismissed",
+      "booker_proceeded_without_agent_reply",
+    ],
+  }),
+});
+
 // -------- Ticket sales --------
 
 export const ticketSales = sqliteTable("ticket_sales", {
@@ -290,6 +353,7 @@ export type Agent = typeof agents.$inferSelect;
 export type Artist = typeof artists.$inferSelect;
 export type Show = typeof shows.$inferSelect;
 export type Deal = typeof deals.$inferSelect;
+export type DealClarification = typeof dealClarifications.$inferSelect;
 export type TicketSale = typeof ticketSales.$inferSelect;
 export type Comp = typeof comps.$inferSelect;
 export type Expense = typeof expenses.$inferSelect;
