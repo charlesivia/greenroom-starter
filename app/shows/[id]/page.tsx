@@ -6,6 +6,9 @@ import {
   AlertCircle,
   Clock,
   TrendingUp,
+  Send,
+  CheckCircle2,
+  MessageSquare,
 } from "lucide-react";
 import { getShowById } from "@/lib/queries";
 import {
@@ -22,10 +25,11 @@ import { parseBonuses } from "@/lib/dealMath";
 import {
   formatMoney,
   formatMoneyCompact,
+  formatShowDate,
   formatShowDateFull,
   relativeShowDate,
 } from "@/lib/format";
-import type { Bonus } from "@/db/schema";
+import type { Bonus, DealClarification } from "@/db/schema";
 
 const COMP_LABELS: Record<string, string> = {
   artist_gl: "Artist guest list",
@@ -56,6 +60,7 @@ export default async function ShowDetailPage({
     ticketSales,
     expenses,
     comps,
+    clarifications,
   } = data;
 
   const grossSoFar = ticketSales.reduce((sum, t) => sum + t.gross, 0);
@@ -257,6 +262,8 @@ export default async function ShowDetailPage({
             </CardContent>
           </Card>
 
+          <PreFlightReviewSection clarifications={clarifications} />
+
           {/* Artist & agent */}
           <Card>
             <CardHeader>
@@ -456,6 +463,210 @@ export default async function ShowDetailPage({
       </div>
     </div>
   );
+}
+
+function PreFlightReviewSection({
+  clarifications,
+}: {
+  clarifications: {
+    active: DealClarification[];
+    resolved: DealClarification[];
+    awaitingReplyCount: number;
+  };
+}) {
+  const total = clarifications.active.length + clarifications.resolved.length;
+
+  return (
+    <Card
+      className="md:col-span-3"
+      accent={
+        clarifications.active.length > 0
+          ? "amber"
+          : total > 0
+            ? "brand"
+            : undefined
+      }
+    >
+      <CardHeader>
+        <div>
+          <CardTitle>Pre-flight deal review</CardTitle>
+          <CardDescription>
+            {clarifications.active.length > 0
+              ? `${clarifications.active.length} unresolved clarification${
+                  clarifications.active.length === 1 ? "" : "s"
+                } before show night.`
+              : total > 0
+                ? "All detected deal ambiguities have been resolved or dismissed."
+                : "No ambiguity risks detected for this deal."}
+          </CardDescription>
+        </div>
+        {clarifications.active.length > 0 ? (
+          <PlainBadge variant="amber">
+            {clarifications.awaitingReplyCount > 0
+              ? `${clarifications.awaitingReplyCount} awaiting reply`
+              : `${clarifications.active.length} active`}
+          </PlainBadge>
+        ) : total > 0 ? (
+          <PlainBadge variant="brand">All resolved</PlainBadge>
+        ) : (
+          <PlainBadge variant="default">All clear</PlainBadge>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {clarifications.active.length > 0 ? (
+          <div className="space-y-3">
+            {clarifications.active.map((clarification) => (
+              <ClarificationPanel
+                key={clarification.id}
+                clarification={clarification}
+              />
+            ))}
+          </div>
+        ) : total === 0 ? (
+          <div className="rounded-lg bg-canvas-soft ring-1 ring-ink-200/50 p-4">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="h-4 w-4 text-brand-700 mt-0.5 shrink-0" />
+              <div>
+                <div className="text-[13px] font-medium text-ink-900">
+                  No pre-flight clarification needed.
+                </div>
+                <div className="text-[12.5px] text-ink-500 mt-1 leading-relaxed">
+                  Checked marketing recoup × cap and bonus structure drift
+                  against the current deal language.
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {clarifications.resolved.length > 0 && (
+          <div className="space-y-2">
+            {clarifications.active.length > 0 && (
+              <div className="eyebrow text-[10px] text-ink-400">
+                Resolved
+              </div>
+            )}
+            {clarifications.resolved.map((clarification) => (
+              <ResolvedClarificationRow
+                key={clarification.id}
+                clarification={clarification}
+              />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ClarificationPanel({
+  clarification,
+}: {
+  clarification: DealClarification;
+}) {
+  const isHigh = clarification.severity === "high";
+  return (
+    <div className="rounded-lg ring-1 ring-amber-200/70 bg-amber-50/30 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <PlainBadge variant={isHigh ? "rose" : "amber"}>
+            {clarification.severity}
+          </PlainBadge>
+          <div className="eyebrow text-[10px] text-amber-900">
+            {riskClassLabel(clarification.riskClass)}
+          </div>
+        </div>
+        <PlainBadge
+          variant={clarification.status === "sent_to_agent" ? "sky" : "amber"}
+        >
+          {clarification.status === "sent_to_agent"
+            ? "Awaiting reply"
+            : "Pending"}
+        </PlainBadge>
+      </div>
+
+      <div className="text-[14px] font-medium text-ink-900 mt-3 leading-snug">
+        {clarification.leadSentence}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+        <div>
+          <div className="eyebrow text-[10px] text-ink-500 mb-1.5">
+            From the deal
+          </div>
+          <div className="text-[12.5px] text-ink-800 bg-white/80 rounded-lg p-3 ring-1 ring-ink-200/50 leading-relaxed italic">
+            “{clarification.detectedPhraseFromDeal}”
+          </div>
+        </div>
+        <div>
+          <div className="eyebrow text-[10px] text-ink-500 mb-1.5">
+            Suggested clarification
+          </div>
+          <div className="text-[12.5px] text-ink-800 bg-white/80 rounded-lg p-3 ring-1 ring-ink-200/50 leading-relaxed">
+            {clarification.suggestedClarification}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 mt-4">
+        <Button variant="brand" size="sm" disabled>
+          <Send className="h-3.5 w-3.5" />
+          Send to agent
+        </Button>
+        <Button variant="secondary" size="sm" disabled>
+          <MessageSquare className="h-3.5 w-3.5" />
+          Record reply
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ResolvedClarificationRow({
+  clarification,
+}: {
+  clarification: DealClarification;
+}) {
+  return (
+    <div className="rounded-lg ring-1 ring-brand-200/50 bg-brand-50/20 px-3.5 py-3 flex items-start justify-between gap-4">
+      <div>
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="h-3.5 w-3.5 text-brand-700" />
+          <div className="text-[12.5px] font-medium text-ink-900">
+            {clarification.leadSentence}
+          </div>
+        </div>
+        {clarification.agentReplyText && (
+          <div className="text-[12px] text-ink-500 mt-1.5 leading-relaxed">
+            {clarification.agentReplyText}
+          </div>
+        )}
+      </div>
+      <PlainBadge
+        variant={
+          clarification.status === "dismissed_by_booker" ? "default" : "brand"
+        }
+        className="shrink-0"
+      >
+        {clarification.status === "dismissed_by_booker"
+          ? "Dismissed"
+          : clarification.resolvedAt
+            ? `Resolved ${formatShowDate(
+                clarification.resolvedAt.toISOString().slice(0, 10),
+              )}`
+            : "Resolved"}
+      </PlainBadge>
+    </div>
+  );
+}
+
+function riskClassLabel(riskClass: DealClarification["riskClass"]) {
+  const labels: Record<DealClarification["riskClass"], string> = {
+    marketing_recoup_cap: "Marketing recoup × cap",
+    bonus_structure_drift: "Bonus structure drift",
+    agent_risk_pattern: "Agent risk pattern",
+  };
+  return labels[riskClass];
 }
 
 function MiniStat({

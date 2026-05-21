@@ -9,6 +9,7 @@ import {
   agents,
   agencies,
   deals,
+  dealClarifications,
   ticketSales,
   comps,
   expenses,
@@ -65,19 +66,27 @@ export async function getShowById(id: string) {
   if (rows.length === 0) return null;
   const row = rows[0];
 
-  const [showTicketSales, showExpenses, showComps] = await Promise.all([
-    db
-      .select()
-      .from(ticketSales)
-      .where(eq(ticketSales.showId, id))
-      .orderBy(desc(ticketSales.capturedAt)),
-    db
-      .select()
-      .from(expenses)
-      .where(eq(expenses.showId, id))
-      .orderBy(asc(expenses.enteredAt)),
-    db.select().from(comps).where(eq(comps.showId, id)),
-  ]);
+  const [showTicketSales, showExpenses, showComps, clarifications] =
+    await Promise.all([
+      db
+        .select()
+        .from(ticketSales)
+        .where(eq(ticketSales.showId, id))
+        .orderBy(desc(ticketSales.capturedAt)),
+      db
+        .select()
+        .from(expenses)
+        .where(eq(expenses.showId, id))
+        .orderBy(asc(expenses.enteredAt)),
+      db.select().from(comps).where(eq(comps.showId, id)),
+      row.deal
+        ? getClarificationsForDeal(row.deal.id)
+        : Promise.resolve({
+            active: [],
+            resolved: [],
+            awaitingReplyCount: 0,
+          }),
+    ]);
 
   let recoups: Recoup[] = [];
   if (row.settlement?.recoupsJson) {
@@ -95,12 +104,45 @@ export async function getShowById(id: string) {
     expenses: showExpenses,
     comps: showComps,
     recoups,
+    clarifications,
   };
 }
 
 export type ShowWithRelations = NonNullable<
   Awaited<ReturnType<typeof getShowById>>
 >;
+
+export async function getClarificationsForDeal(dealId: string) {
+  const rows = await db
+    .select()
+    .from(dealClarifications)
+    .where(eq(dealClarifications.dealId, dealId));
+
+  const byTimestampDesc = (
+    a: { detectedAt: Date; resolvedAt?: Date | null },
+    b: { detectedAt: Date; resolvedAt?: Date | null },
+  ) =>
+    (b.resolvedAt?.getTime() ?? b.detectedAt.getTime()) -
+    (a.resolvedAt?.getTime() ?? a.detectedAt.getTime());
+
+  const active = rows
+    .filter((row) => row.status === "pending" || row.status === "sent_to_agent")
+    .sort((a, b) => b.detectedAt.getTime() - a.detectedAt.getTime());
+
+  const resolved = rows
+    .filter(
+      (row) =>
+        row.status === "resolved" || row.status === "dismissed_by_booker",
+    )
+    .sort(byTimestampDesc);
+
+  return {
+    active,
+    resolved,
+    awaitingReplyCount: active.filter((row) => row.status === "sent_to_agent")
+      .length,
+  };
+}
 
 /** All artists with show counts. */
 export async function getAllArtists() {
