@@ -24,6 +24,15 @@ export type MarketingRecoupCapRisk = {
   citationShowIds: string[];
 };
 
+export type BonusStructureDriftRisk = {
+  riskClass: "bonus_structure_drift";
+  severity: "medium";
+  leadSentence: string;
+  detectedPhraseFromDeal: string;
+  suggestedClarification: string;
+  citationShowIds: string[];
+};
+
 export type PreFlightDetectionContext = Awaited<
   ReturnType<typeof getShowContextForDetection>
 >;
@@ -100,6 +109,58 @@ function containsLiteralSubstring(prose: string, phrase: string) {
 function containsMarketingRecoupSignal(value: string) {
   const normalized = value.toLowerCase();
   return normalized.includes("recoup") || normalized.includes("marketing");
+}
+
+function containsBonusStructureSignal(value: string) {
+  const normalized = value.toLowerCase();
+  return (
+    normalized.includes("bonus") ||
+    normalized.includes("bonuses") ||
+    normalized.includes("walkout") ||
+    normalized.includes("threshold") ||
+    normalized.includes("gross above") ||
+    normalized.includes("over $") ||
+    normalized.includes("pot")
+  );
+}
+
+function bonusStructureQuestion(showDate: string) {
+  return (
+    `Quick clarification before ${formatShortShowDate(showDate)}: ` +
+    "can you confirm the exact bonus terms from the deal memo, including trigger, " +
+    "amount, and whether it stacks with the guarantee or percentage payout?"
+  );
+}
+
+function bonusLeadSentence(phrase: string) {
+  const normalized = phrase.toLowerCase();
+  const grossAbove = phrase.match(/gross above\s+(\$[\d,]+(?:\.\d+)?)/i);
+
+  if (normalized.includes("walkout") && grossAbove) {
+    return (
+      `Walkout pot at ${grossAbove[0]} mentioned in deal notes, but bonuses_json is empty. ` +
+      "The math engine won't trigger this when settlement runs."
+    );
+  }
+
+  if (normalized.includes("threshold")) {
+    return (
+      "Bonus threshold mentioned in deal notes, but bonuses_json is empty. " +
+      "The math engine won't trigger this when settlement runs."
+    );
+  }
+
+  if (normalized.includes("pot")) {
+    return (
+      "Bonus pot mentioned in deal notes, but bonuses_json is empty. " +
+      "The math engine won't trigger this when settlement runs."
+    );
+  }
+
+  return (
+    "Bonus terms are referenced in the deal prose, but bonuses_json is empty. " +
+    "Settlement may miss or misapply the bonus unless the deal memo is clarified before show night."
+  );
 }
 
 export async function getShowContextForDetection(showId: string) {
@@ -374,6 +435,116 @@ export async function detectMarketingRecoupCapRisks(
           expenseCap,
         }),
         citationShowIds: allowedCitations,
+      },
+    ];
+  });
+}
+
+export async function detectBonusStructureDriftRisks(
+  context: PreFlightDetectionContext,
+): Promise<BonusStructureDriftRisk[]> {
+  const prose = context.target.deal.dealNotesFreetext;
+  if (!prose || context.target.deal.bonusesJson != null) return [];
+  if (!containsBonusStructureSignal(prose)) return [];
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is required to run pre-flight detection.");
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      temperature: 0.1,
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "bonus_structure_drift_detection",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["risks"],
+            properties: {
+              risks: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["riskClass", "detectedPhraseFromDeal"],
+                  properties: {
+                    riskClass: {
+                      type: "string",
+                      enum: ["bonus_structure_drift"],
+                    },
+                    detectedPhraseFromDeal: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You detect only the bonus_structure_drift risk class for Greenroom pre-flight deal review.",
+            "Hard rules:",
+            "1. Never invent values, dates, agency names, amounts, or show IDs.",
+            "2. detectedPhraseFromDeal must be a literal substring of dealNotesFreetext.",
+            "3. Return strict JSON matching the schema.",
+            "4. No prose explanations outside JSON.",
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            task: "Return one risk only if bonusesJson is null and target deal prose references bonus terms. Otherwise return an empty risks array.",
+            target: context.target,
+          }),
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`OpenAI request failed (${response.status}): ${text}`);
+  }
+
+  const completion = await response.json();
+  const message = completion.choices?.[0]?.message;
+  if (message?.refusal) {
+    throw new Error(`OpenAI refusal: ${message.refusal}`);
+  }
+  if (!message?.content) return [];
+
+  const parsed = JSON.parse(message.content) as {
+    risks: {
+      riskClass: "bonus_structure_drift";
+      detectedPhraseFromDeal: string;
+    }[];
+  };
+
+  return parsed.risks.flatMap((risk): BonusStructureDriftRisk[] => {
+    if (risk.riskClass !== "bonus_structure_drift") return [];
+    if (!containsLiteralSubstring(prose, risk.detectedPhraseFromDeal)) return [];
+    if (!containsBonusStructureSignal(risk.detectedPhraseFromDeal)) return [];
+
+    return [
+      {
+        riskClass: "bonus_structure_drift",
+        severity: "medium",
+        leadSentence: bonusLeadSentence(risk.detectedPhraseFromDeal),
+        detectedPhraseFromDeal: risk.detectedPhraseFromDeal,
+        suggestedClarification: bonusStructureQuestion(context.target.date),
+        citationShowIds: [],
       },
     ];
   });
