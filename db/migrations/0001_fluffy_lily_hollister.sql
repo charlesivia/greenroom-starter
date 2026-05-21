@@ -1,0 +1,20 @@
+CREATE TABLE `deal_clarifications` (
+	`id` text PRIMARY KEY NOT NULL,
+	`deal_id` text NOT NULL,
+	`risk_class` text NOT NULL,
+	`severity` text NOT NULL,
+	`lead_sentence` text NOT NULL,
+	`detected_phrase_from_deal` text NOT NULL,
+	`suggested_clarification` text NOT NULL,
+	`citation_show_ids` text,
+	`detected_at` integer NOT NULL,
+	`detected_by_model` text,
+	`status` text DEFAULT 'pending' NOT NULL,
+	`sent_to_agent_at` integer,
+	`agent_reply_text` text,
+	`agent_reply_received_at` integer,
+	`resolution_value_json` text,
+	`resolved_at` integer,
+	`resolved_via` text,
+	FOREIGN KEY (`deal_id`) REFERENCES `deals`(`id`) ON UPDATE no action ON DELETE no action
+);

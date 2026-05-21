@@ -30,6 +30,7 @@ import {
   artists,
   shows,
   deals,
+  dealClarifications,
   ticketSales,
   comps,
   expenses,
@@ -849,9 +850,23 @@ function dateOffset(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function localDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function localDateOffset(days: number): string {
+  const d = new Date(TODAY);
+  d.setDate(d.getDate() + days);
+  return localDateString(d);
+}
+
 async function main() {
   console.log("🌱 Seeding 18-month Greenroom dataset…");
 
+  await db.delete(dealClarifications);
   await db.delete(settlements);
   await db.delete(expenses);
   await db.delete(comps);
@@ -892,6 +907,7 @@ async function main() {
   const compsToInsert: (typeof comps.$inferInsert)[] = [];
   const expensesToInsert: (typeof expenses.$inferInsert)[] = [];
   const settlementsToInsert: (typeof settlements.$inferInsert)[] = [];
+  const dealClarificationsToInsert: (typeof dealClarifications.$inferInsert)[] = [];
 
   // Track post-insert mutations for breadcrumbs that need to update artist
   // rows (already inserted earlier in main()).
@@ -1428,6 +1444,140 @@ async function main() {
       "Disputed by WME (Daniel Hwang) on 3/18 over the $900 marketing recoup. Marcus authorized additional $720 to resolve, but the formal revision hasn't been pushed back into the system yet. Final agreed: $12,285 (vs originally calculated $11,565). See email thread for context. Going forward: deal emails must specify marketing recoup as inside or outside expense cap.",
   });
 
+  // -------- Plant pre-flight clarification examples --------
+  //
+  // These rows are the ground truth for the v1 Pre-flight Deal Review demo.
+  // They intentionally cover one historical precedent, one resolved bonus
+  // ambiguity, and one live upcoming queue item.
+
+  dealClarificationsToInsert.push({
+    id: "clr_coastal_spell_retro",
+    dealId: `deal_${coastalShowId}`,
+    riskClass: "marketing_recoup_cap",
+    severity: "high",
+    leadSentence:
+      "$900 marketing recoup × $2,500 expense cap. This combination cost The Crescent $720 with WME on March 14, 2025.",
+    detectedPhraseFromDeal: "Marketing recoup of $900 against gross.",
+    suggestedClarification:
+      "Quick clarification before show night: is the $900 marketing recoup inside or outside the $2,500 expense cap?",
+    citationShowIds: JSON.stringify([coastalShowId]),
+    detectedAt: new Date("2025-03-18T09:00:00"),
+    detectedByModel: "seeded-retrospective",
+    status: "resolved",
+    sentToAgentAt: new Date("2025-03-18T09:15:00"),
+    agentReplyText:
+      "Confirmed by email: the $900 marketing recoup is inside the $2,500 expense cap.",
+    agentReplyReceivedAt: new Date("2025-03-19T10:30:00"),
+    resolutionValueJson: JSON.stringify({
+      marketingRecoupTreatment: "inside_expense_cap",
+      recoupAmount: 900,
+      expenseCap: 2500,
+    }),
+    resolvedAt: new Date("2025-03-19T10:30:00"),
+    resolvedVia: "email",
+  });
+
+  {
+    const bonusDriftShowId = "show_0064";
+    const targetDeal = findDeal(bonusDriftShowId);
+    if (!targetDeal) {
+      throw new Error(`Seed expected ${bonusDriftShowId} to have a deal`);
+    }
+
+    const detectedPhrase =
+      "Performance bonuses per the deal memo (see email thread).";
+    targetDeal.dealType = "vs";
+    targetDeal.percentage = 0.75;
+    targetDeal.percentageBasis = "net";
+    targetDeal.bonusesJson = null;
+    targetDeal.dealNotesFreetext = `${targetDeal.dealNotesFreetext ?? ""} ${detectedPhrase}`.trim();
+
+    dealClarificationsToInsert.push({
+      id: "clr_show_0064_resolved",
+      dealId: targetDeal.id,
+      riskClass: "bonus_structure_drift",
+      severity: "medium",
+      leadSentence:
+        "Walkout bonus language is in the deal notes, but bonuses_json is empty. The settlement engine will not apply it without manual clarification.",
+      detectedPhraseFromDeal: detectedPhrase,
+      suggestedClarification:
+        "Can you confirm the walkout structure: does it trigger at 80% sold, with a 75/25 split above that threshold?",
+      citationShowIds: JSON.stringify([bonusDriftShowId]),
+      detectedAt: new Date("2025-11-04T09:00:00"),
+      detectedByModel: "seeded-demo",
+      status: "resolved",
+      sentToAgentAt: new Date("2025-11-04T09:20:00"),
+      agentReplyText:
+        "Confirmed: walkout triggers at 80% sold, then 75/25 split above.",
+      agentReplyReceivedAt: new Date("2025-11-04T13:45:00"),
+      resolutionValueJson: JSON.stringify({
+        bonusType: "walkout",
+        trigger: "80_percent_sold",
+        artistSplitAboveTrigger: 0.75,
+        venueSplitAboveTrigger: 0.25,
+      }),
+      resolvedAt: new Date("2025-11-04T13:45:00"),
+      resolvedVia: "email",
+    });
+  }
+
+  {
+    const today = localDateOffset(0);
+    const sevenDaysOut = localDateOffset(7);
+    const upcoming = showsToInsert
+      .filter((s) => s.date >= today)
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+    const inWindow = upcoming.filter((s) => s.date <= sevenDaysOut);
+    const pickDemoShow =
+      inWindow.find((s) => {
+        const d = findDeal(s.id as string);
+        return d?.guaranteeAmount != null && d.expenseCap != null;
+      }) ??
+      inWindow.find((s) => findDeal(s.id as string)?.guaranteeAmount != null) ??
+      upcoming.find((s) => {
+        const d = findDeal(s.id as string);
+        return d?.guaranteeAmount != null && d.expenseCap != null;
+      }) ??
+      upcoming.find((s) => findDeal(s.id as string)?.guaranteeAmount != null) ??
+      upcoming[0];
+
+    if (!pickDemoShow) {
+      throw new Error("Seed expected at least one upcoming show for demo clarification");
+    }
+
+    const targetDeal = findDeal(pickDemoShow.id as string);
+    if (!targetDeal) {
+      throw new Error(`Seed expected ${pickDemoShow.id} to have a deal`);
+    }
+
+    const guarantee = targetDeal.guaranteeAmount ?? 5000;
+    const recoupAmount = Math.round((guarantee * 0.2) / 50) * 50;
+    const expenseCap =
+      targetDeal.expenseCap ?? Math.round((guarantee * 0.5) / 50) * 50;
+    const detectedPhrase = `Marketing recoup of $${recoupAmount.toLocaleString()} against gross; expenses capped at $${expenseCap.toLocaleString()}.`;
+
+    targetDeal.expenseCap = expenseCap;
+    targetDeal.dealNotesFreetext = `${targetDeal.dealNotesFreetext ?? ""} ${detectedPhrase}`.trim();
+
+    dealClarificationsToInsert.push({
+      id: "clr_demo_inwindow_pending",
+      dealId: targetDeal.id,
+      riskClass: "marketing_recoup_cap",
+      severity: "high",
+      leadSentence:
+        `$${recoupAmount.toLocaleString()} marketing recoup × $${expenseCap.toLocaleString()} expense cap. ` +
+        "Coastal Spell created a $720 dispute on the same interpretation.",
+      detectedPhraseFromDeal: detectedPhrase,
+      suggestedClarification:
+        `Quick clarification before show night: is the $${recoupAmount.toLocaleString()} marketing recoup inside or outside the $${expenseCap.toLocaleString()} expense cap?`,
+      citationShowIds: JSON.stringify([coastalShowId]),
+      detectedAt: new Date(TODAY),
+      detectedByModel: "seeded-demo",
+      status: "pending",
+    });
+  }
+
   // Bulk insert
   console.log(`   Inserting ${showsToInsert.length} shows…`);
   const chunkArr = <T>(arr: T[], size: number): T[][] =>
@@ -1439,6 +1589,7 @@ async function main() {
   for (const c of chunkArr(compsToInsert, 50)) await db.insert(comps).values(c);
   for (const c of chunkArr(expensesToInsert, 50)) await db.insert(expenses).values(c);
   for (const c of chunkArr(settlementsToInsert, 50)) await db.insert(settlements).values(c);
+  for (const c of chunkArr(dealClarificationsToInsert, 50)) await db.insert(dealClarifications).values(c);
 
   // BC11 finalization: artist's priorShowCount left stale despite many shows
   for (const bc of breadcrumbsToFinalize) {
@@ -1469,6 +1620,7 @@ async function main() {
   console.log(`   ${settlementsToInsert.length} settlements (${Object.entries(stageCounts).map(([k, v]) => `${k}:${v}`).join(", ")})`);
   console.log(`   ${recoupCount} settlements have recoup line items`);
   console.log(`   ${bonusCount} deals have structured bonuses`);
+  console.log(`   ${dealClarificationsToInsert.length} deal clarifications`);
   console.log(`   1 named dispute (Coastal Spell, March 2025) injected for narrative continuity`);
 }
 

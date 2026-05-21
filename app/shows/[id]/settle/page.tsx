@@ -25,9 +25,10 @@ import { StatusBadge, DealTypeBadge, PlainBadge } from "@/components/ui/badge";
 import { calculateSettlement } from "@/lib/dealMath";
 import {
   formatMoney,
+  formatShowDate,
   formatShowDateFull,
 } from "@/lib/format";
-import type { Settlement, Recoup } from "@/db/schema";
+import type { Settlement, Recoup, DealClarification } from "@/db/schema";
 import { Logomark } from "@/components/brand/logo";
 
 const RECOUP_LABELS: Record<Recoup["category"], string> = {
@@ -48,8 +49,16 @@ export default async function SettlePage({
   const data = await getShowById(id);
   if (!data) notFound();
 
-  const { show, artist, deal, ticketSales, expenses, settlement, recoups } =
-    data;
+  const {
+    show,
+    artist,
+    deal,
+    ticketSales,
+    expenses,
+    settlement,
+    recoups,
+    clarifications,
+  } = data;
 
   if (!deal) {
     return (
@@ -77,6 +86,9 @@ export default async function SettlePage({
   const disputedRecoups = recoups.filter((r) => r.status === "disputed");
   const isDisputed = settlement?.status === "disputed" || settlement?.status === "revised" || !!settlement?.disputedAt;
   const disputedRecoupValue = disputedRecoups.reduce((s, r) => s + r.amount, 0);
+  const resolvedClarifications = clarifications.resolved.filter(
+    (c) => c.status === "resolved",
+  );
 
   return (
     <div className={`px-12 py-10 max-w-7xl ${isDisputed ? "bg-gradient-to-b from-rose-50/30 via-canvas to-canvas" : ""}`}>
@@ -142,6 +154,12 @@ export default async function SettlePage({
           <SupportedSettlement calc={calc} existingSettlement={settlement} />
         )}
 
+        {resolvedClarifications.length > 0 && (
+          <PreFlightClarificationsSection
+            clarifications={resolvedClarifications}
+          />
+        )}
+
         {recoups.length > 0 && <RecoupsSection recoups={recoups} />}
 
         {settlement && (settlement.signoffText || settlement.notes) && (
@@ -174,6 +192,108 @@ export default async function SettlePage({
       </div>
     </div>
   );
+}
+
+function PreFlightClarificationsSection({
+  clarifications,
+}: {
+  clarifications: DealClarification[];
+}) {
+  return (
+    <Card accent="brand">
+      <CardHeader>
+        <div>
+          <CardTitle>Pre-flight clarifications</CardTitle>
+          <CardDescription>
+            Resolved pre-flight interpretations to use while settling this show.
+          </CardDescription>
+        </div>
+        <PlainBadge variant="brand">
+          {clarifications.length} resolved
+        </PlainBadge>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-3">
+          {clarifications.map((clarification) => (
+            <div
+              key={clarification.id}
+              className="rounded-lg bg-brand-50/20 ring-1 ring-brand-200/50 p-4"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="eyebrow text-[10px] text-brand-800 mb-2">
+                    {riskClassLabel(clarification.riskClass)}
+                  </div>
+                  <div className="text-[13.5px] font-medium text-ink-900 leading-snug">
+                    {clarification.leadSentence}
+                  </div>
+                </div>
+                <PlainBadge variant="brand" className="shrink-0">
+                  Resolved
+                </PlainBadge>
+              </div>
+
+              {clarification.agentReplyText && (
+                <div className="mt-4">
+                  <div className="eyebrow text-[10px] text-ink-500 mb-1.5">
+                    Agent reply
+                  </div>
+                  <div className="text-[12.5px] text-ink-800 bg-white/80 rounded-lg p-3 ring-1 ring-ink-200/50 leading-relaxed">
+                    {clarification.agentReplyText}
+                  </div>
+                </div>
+              )}
+
+              {(clarification.resolvedVia || clarification.resolvedAt) && (
+                <div className="text-[11.5px] text-ink-400 mt-3">
+                  {clarification.resolvedVia && (
+                    <span>{resolvedViaLabel(clarification.resolvedVia)}</span>
+                  )}
+                  {clarification.resolvedVia && clarification.resolvedAt && (
+                    <span> · </span>
+                  )}
+                  {clarification.resolvedAt && (
+                    <span>
+                      {formatShowDate(
+                        clarification.resolvedAt.toISOString().slice(0, 10),
+                      )}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="text-[12px] text-ink-500 leading-relaxed">
+          Use these clarified terms when checking the spreadsheet or settlement
+          worksheet.
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function riskClassLabel(riskClass: DealClarification["riskClass"]) {
+  const labels: Record<DealClarification["riskClass"], string> = {
+    marketing_recoup_cap: "Marketing recoup × cap",
+    bonus_structure_drift: "Bonus structure drift",
+    agent_risk_pattern: "Agent risk pattern",
+  };
+  return labels[riskClass];
+}
+
+function resolvedViaLabel(
+  resolvedVia: NonNullable<DealClarification["resolvedVia"]>,
+) {
+  const labels: Record<NonNullable<DealClarification["resolvedVia"]>, string> =
+    {
+      email: "Resolved via email",
+      in_app_reply: "Resolved via in-app reply",
+      phone_logged_by_booker: "Resolved by phone",
+      booker_dismissed: "Dismissed by booker",
+      booker_proceeded_without_agent_reply: "Proceeded without agent reply",
+    };
+  return labels[resolvedVia];
 }
 
 function BackLink({ showId }: { showId: string }) {
