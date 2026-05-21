@@ -5,6 +5,7 @@ import {
   formatShowMonth,
   relativeShowDate,
 } from "@/lib/format";
+import { PreFlightQueueSection } from "@/components/preflight/queue-section";
 import { ShowsList } from "./shows-list";
 import type { ShowRow } from "./shows-list";
 
@@ -87,6 +88,8 @@ export default async function ShowsPage() {
           mono
         />
       </div>
+
+      <PreFlightQueueSection />
 
       <ShowsList rows={serialized} />
     </div>

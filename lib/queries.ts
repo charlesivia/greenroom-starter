@@ -16,14 +16,31 @@ import {
   settlements,
   venues,
   type Recoup,
+  type DealClarification,
 } from "@/db/schema";
-import { desc, asc, eq, sql, lte } from "drizzle-orm";
+import { desc, asc, eq, sql, lte, gte, and } from "drizzle-orm";
 
 function todayDateString(): string {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d.toISOString().slice(0, 10);
 }
+
+function localDateString(offsetDays = 0): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + offsetDays);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+const severityRank: Record<DealClarification["severity"], number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+};
 
 export async function getAllShows() {
   return db
@@ -111,6 +128,85 @@ export async function getShowById(id: string) {
 export type ShowWithRelations = NonNullable<
   Awaited<ReturnType<typeof getShowById>>
 >;
+
+export async function getThisWeekPreFlightQueue() {
+  const windowStart = localDateString(0);
+  const windowEnd = localDateString(7);
+
+  const rows = await db
+    .select({
+      show: shows,
+      artist: artists,
+      clarification: dealClarifications,
+    })
+    .from(shows)
+    .leftJoin(artists, eq(shows.artistId, artists.id))
+    .leftJoin(deals, eq(deals.showId, shows.id))
+    .leftJoin(dealClarifications, eq(dealClarifications.dealId, deals.id))
+    .where(and(gte(shows.date, windowStart), lte(shows.date, windowEnd)))
+    .orderBy(asc(shows.date));
+
+  const showMap = new Map<
+    string,
+    {
+      showId: string;
+      date: string;
+      artistName: string;
+      unresolved: DealClarification[];
+    }
+  >();
+
+  for (const row of rows) {
+    const existing =
+      showMap.get(row.show.id) ??
+      {
+        showId: row.show.id,
+        date: row.show.date,
+        artistName: row.artist?.name ?? "Unknown artist",
+        unresolved: [],
+      };
+
+    if (
+      row.clarification &&
+      (row.clarification.status === "pending" ||
+        row.clarification.status === "sent_to_agent")
+    ) {
+      existing.unresolved.push(row.clarification);
+    }
+
+    showMap.set(row.show.id, existing);
+  }
+
+  const items = Array.from(showMap.values())
+    .flatMap((show) => {
+      if (show.unresolved.length === 0) return [];
+
+      const sorted = [...show.unresolved].sort((a, b) => {
+        const severityDelta = severityRank[b.severity] - severityRank[a.severity];
+        if (severityDelta !== 0) return severityDelta;
+        return b.detectedAt.getTime() - a.detectedAt.getTime();
+      });
+      const highest = sorted[0];
+
+      return [
+        {
+          showId: show.showId,
+          date: show.date,
+          artistName: show.artistName,
+          leadSentence: highest.leadSentence,
+          severity: highest.severity,
+          status: highest.status,
+          otherUnresolvedCount: sorted.length - 1,
+        },
+      ];
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    checkedShowCount: showMap.size,
+    items,
+  };
+}
 
 export async function getClarificationsForDeal(dealId: string) {
   const rows = await db
