@@ -29,8 +29,12 @@ import {
   relativeShowDate,
 } from "@/lib/format";
 import type { Bonus, DealClarification } from "@/db/schema";
-import { sendClarificationToAgent } from "./actions";
+import {
+  recordClarificationReply,
+  sendClarificationToAgent,
+} from "./actions";
 import { SendClarificationButton } from "./send-clarification-button";
+import { RecordReplyForm } from "./record-reply-form";
 
 const COMP_LABELS: Record<string, string> = {
   artist_gl: "Artist guest list",
@@ -633,11 +637,21 @@ function ClarificationPanel({
             Sent to agent
           </Button>
         )}
-        <Button variant="secondary" size="sm" disabled>
-          <MessageSquare className="h-3.5 w-3.5" />
-          Record reply
-        </Button>
+        {clarification.status !== "sent_to_agent" && (
+          <Button variant="secondary" size="sm" disabled>
+            <MessageSquare className="h-3.5 w-3.5" />
+            Record reply
+          </Button>
+        )}
       </div>
+
+      {clarification.status === "sent_to_agent" && (
+        <RecordReplyForm
+          action={recordClarificationReply}
+          clarificationId={clarification.id}
+          showId={showId}
+        />
+      )}
     </div>
   );
 }

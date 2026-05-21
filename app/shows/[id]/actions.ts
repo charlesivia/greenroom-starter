@@ -28,3 +28,34 @@ export async function sendClarificationToAgent(formData: FormData) {
 
   revalidatePath(`/shows/${showId}`);
 }
+
+export async function recordClarificationReply(formData: FormData) {
+  const clarificationId = String(formData.get("clarificationId") ?? "");
+  const showId = String(formData.get("showId") ?? "");
+  const agentReplyText = String(formData.get("agentReplyText") ?? "").trim();
+
+  if (!clarificationId || !showId) {
+    throw new Error("Missing clarificationId or showId");
+  }
+
+  if (!agentReplyText) {
+    throw new Error("Agent reply is required");
+  }
+
+  await db
+    .update(dealClarifications)
+    .set({
+      status: "resolved",
+      agentReplyText,
+      resolvedAt: new Date(),
+      resolvedVia: "in_app_reply",
+    })
+    .where(
+      and(
+        eq(dealClarifications.id, clarificationId),
+        eq(dealClarifications.status, "sent_to_agent"),
+      ),
+    );
+
+  revalidatePath(`/shows/${showId}`);
+}
