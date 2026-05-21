@@ -12,7 +12,8 @@
     "db:reset": "rm -f data/greenroom.db && drizzle-kit push && tsx db/seed.ts",
     "db:studio": "drizzle-kit studio",
     "preflight:check": "tsx scripts/verify-preflight.ts",
-    "preflight:check:bonus": "tsx scripts/verify-bonus-preflight.ts"
+    "preflight:check:bonus": "tsx scripts/verify-bonus-preflight.ts",
+    "preflight:persist:bonus-demo": "tsx scripts/persist-bonus-clarification.ts show_0167"
   },
   "dependencies": {
     "@libsql/client": "^0.17.3",

@@ -507,7 +507,7 @@ function PreFlightReviewSection({
                 } before show night.`
               : total > 0
                 ? "All detected deal ambiguities have been resolved or dismissed."
-                : "No ambiguity risks detected for this deal."}
+                : "No pre-flight clarifications recorded for this deal."}
           </CardDescription>
         </div>
         {clarifications.active.length > 0 ? (
@@ -542,8 +542,8 @@ function PreFlightReviewSection({
                   No pre-flight clarification needed.
                 </div>
                 <div className="text-[12.5px] text-ink-500 mt-1 leading-relaxed">
-                  Checked marketing recoup × cap and bonus structure drift
-                  against the current deal language.
+                  Run pre-flight review to surface marketing recoup, cap, or
+                  bonus structure issues before show night.
                 </div>
               </div>
             </div>

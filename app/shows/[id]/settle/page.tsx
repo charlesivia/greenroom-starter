@@ -205,7 +205,7 @@ function PreFlightClarificationsSection({
         <div>
           <CardTitle>Pre-flight clarifications</CardTitle>
           <CardDescription>
-            Agent-acknowledged interpretations to use while settling this show.
+            Resolved pre-flight interpretations to use while settling this show.
           </CardDescription>
         </div>
         <PlainBadge variant="brand">
