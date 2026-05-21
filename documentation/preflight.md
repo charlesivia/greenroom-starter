@@ -11,6 +11,9 @@ The product thesis is that settlement disputes often come from ambiguous deal pr
 - `deal_clarifications` schema: one new table for detected deal ambiguities, suggested clarification text, status, agent reply, resolution metadata, and citations.
 - `marketing_recoup_cap` detector: detects deal prose where a marketing recoup intersects with an expense cap.
 - `bonus_structure_drift` detector: detects bonus-related deal prose when `bonuses_json` is missing.
+- `getThisWeekPreFlightQueue()`: loads upcoming shows in the next 7 local-calendar days with pending or awaiting-reply clarifications.
+- THIS WEEK Pre-flight queue: server-rendered section on `/shows` above the shows table.
+- `components/preflight/queue-section.tsx`: renders active and all-clear queue states.
 - Show detail Pre-flight deal review section: server-rendered section after Deal terms and before operational sections.
 - Send to agent action: transitions a pending clarification to `sent_to_agent`.
 - Record reply action: captures `agentReplyText`, marks the clarification `resolved`, sets `resolvedVia = in_app_reply`, and revalidates the show page.
@@ -109,6 +112,8 @@ Negative:
 
 ## 6. Demo Paths
 
+- `/shows`: after `npm run db:reset`, the THIS WEEK Pre-flight queue appears above the shows table and shows `show_0141`.
+- `/shows`: after resolving the `show_0141` clarification, the queue drops to the all-clear state if no other unresolved clarifications remain in the 7-day window.
 - `/shows/show_0141`: marketing case. After `npm run db:reset`, this is the active seeded marketing clarification. After using Send to agent and Record reply, it becomes resolved.
 - `/shows/show_0167`: active bonus case after running `npm run preflight:persist:bonus-demo`.
 - `/shows/show_0056`: all-clear state. This means no recorded clarifications for the deal, not a live detector run.
@@ -152,6 +157,11 @@ Type-check:
 npx tsc --noEmit
 ```
 
+Verification notes:
+- `npx tsc --noEmit` passes.
+- `npm run db:reset` lights up `show_0141` in the `/shows` queue.
+- Resolving the `show_0141` clarification removes it from the `/shows` queue.
+
 Lint note:
 
 ```bash
@@ -180,7 +190,11 @@ Detection:
 - `scripts/persist-bonus-clarification.ts`
 
 Queries:
-- `lib/queries.ts`
+- `lib/queries.ts` — includes `getClarificationsForDeal()` and `getThisWeekPreFlightQueue()`
+
+THIS WEEK queue:
+- `components/preflight/queue-section.tsx`
+- `app/shows/page.tsx`
 
 Show detail UI and actions:
 - `app/shows/[id]/page.tsx`
@@ -201,7 +215,8 @@ Documentation:
 
 - No email integration. Send to agent is a product state transition only.
 - No dismiss flow.
-- No queue view.
+- No row dots on individual show rows.
+- No expandable "show all shows with risks" queue footer.
 - Settlement math does not consume clarifications yet.
 - The settlement handoff is visible provenance, not a calculator change.
 - The bonus detector does not parse actual bonus math.
