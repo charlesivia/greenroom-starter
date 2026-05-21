@@ -6,7 +6,6 @@ import {
   AlertCircle,
   Clock,
   TrendingUp,
-  Send,
   CheckCircle2,
   MessageSquare,
 } from "lucide-react";
@@ -30,6 +29,8 @@ import {
   relativeShowDate,
 } from "@/lib/format";
 import type { Bonus, DealClarification } from "@/db/schema";
+import { sendClarificationToAgent } from "./actions";
+import { SendClarificationButton } from "./send-clarification-button";
 
 const COMP_LABELS: Record<string, string> = {
   artist_gl: "Artist guest list",
@@ -262,7 +263,10 @@ export default async function ShowDetailPage({
             </CardContent>
           </Card>
 
-          <PreFlightReviewSection clarifications={clarifications} />
+          <PreFlightReviewSection
+            showId={show.id}
+            clarifications={clarifications}
+          />
 
           {/* Artist & agent */}
           <Card>
@@ -466,8 +470,10 @@ export default async function ShowDetailPage({
 }
 
 function PreFlightReviewSection({
+  showId,
   clarifications,
 }: {
+  showId: string;
   clarifications: {
     active: DealClarification[];
     resolved: DealClarification[];
@@ -518,6 +524,7 @@ function PreFlightReviewSection({
             {clarifications.active.map((clarification) => (
               <ClarificationPanel
                 key={clarification.id}
+                showId={showId}
                 clarification={clarification}
               />
             ))}
@@ -560,8 +567,10 @@ function PreFlightReviewSection({
 }
 
 function ClarificationPanel({
+  showId,
   clarification,
 }: {
+  showId: string;
   clarification: DealClarification;
 }) {
   const isHigh = clarification.severity === "high";
@@ -609,10 +618,21 @@ function ClarificationPanel({
       </div>
 
       <div className="flex items-center gap-2 mt-4">
-        <Button variant="brand" size="sm" disabled>
-          <Send className="h-3.5 w-3.5" />
-          Send to agent
-        </Button>
+        {clarification.status === "pending" ? (
+          <form action={sendClarificationToAgent}>
+            <input
+              type="hidden"
+              name="clarificationId"
+              value={clarification.id}
+            />
+            <input type="hidden" name="showId" value={showId} />
+            <SendClarificationButton />
+          </form>
+        ) : (
+          <Button variant="secondary" size="sm" disabled>
+            Sent to agent
+          </Button>
+        )}
         <Button variant="secondary" size="sm" disabled>
           <MessageSquare className="h-3.5 w-3.5" />
           Record reply
