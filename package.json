@@ -10,7 +10,8 @@
     "db:push": "drizzle-kit push",
     "db:seed": "tsx db/seed.ts",
     "db:reset": "rm -f data/greenroom.db && drizzle-kit push && tsx db/seed.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "preflight:check": "tsx scripts/verify-preflight.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.3",
